@@ -29,12 +29,12 @@ class LocalCacheDownloader(BaseDownloader):
         )
 
         # There will be no content in response in case of STATUS_CODE_NOT_MODIFIED
-        if cached is not None and response["status_code"] is STATUS_CODE_NOT_MODIFIED:
+        if cached is not None and response["status_code"] == STATUS_CODE_NOT_MODIFIED:
             return cached
 
         # Do not cache is server doesn't respond 'Last-Modified'
         # Otherwise everytime it will ignore cache,which will make cache irrelevant
-        if response["last_modified"] is None:
+        if response["last_modified"] == "":
             return response
 
         return self._write_to_cache(path, response)

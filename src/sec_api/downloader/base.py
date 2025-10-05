@@ -1,19 +1,29 @@
+import logging
 from abc import ABC, abstractmethod
 from typing import TypedDict, override
 from urllib.parse import urljoin
 
 import httpx
-from httpx import AsyncHTTPTransport, Headers, HTTPTransport, Request, Response
-from pyrate_limiter import Duration, Limiter, Rate
+from httpx import AsyncHTTPTransport, Headers, Request, Response
+from pyrate_limiter import Duration, Limiter, limiter_factory
 
 STATUS_CODE_NOT_MODIFIED = 304
+
+logger = logging.getLogger(__name__)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger.setLevel(logging.DEBUG)
 
 
 class DownloadResponse(TypedDict):
     url: str
     status_code: int
     content: str
-    last_modified: str | None
+    last_modified: str
     content_type: str | None
 
 
@@ -25,24 +35,6 @@ class IDownloader(ABC):
         pass
 
 
-class RateLimiterTransport(HTTPTransport):
-    limiter: Limiter
-
-    def __init__(self, limiter: Limiter, **kwargs):
-        super().__init__(**kwargs)
-        self.limiter = limiter
-
-    @override
-    def handle_request(self, request: Request, **kwargs) -> Response:
-        # using a constant string for item name means that the same
-        # rate is applied to all requests.
-        acquired = self.limiter.try_acquire("httpx_ratelimiter")
-        if not acquired:
-            raise RuntimeError("Did not acquire lock")
-
-        return super().handle_request(request, **kwargs)
-
-
 class AsyncAsyncLimiterTransport(AsyncHTTPTransport):
     limiter: Limiter
 
@@ -52,10 +44,10 @@ class AsyncAsyncLimiterTransport(AsyncHTTPTransport):
 
     @override
     async def handle_async_request(self, request: Request, **kwargs) -> Response:
-        acquired = await self.limiter.try_acquire_async("httpx_ratelimiter")
-        if not acquired:
-            raise RuntimeError("Did not acquire lock")
+        while not await self.limiter.try_acquire_async("httpx_ratelimiter"):
+            logger.debug("Lock acquisition timed out, retrying")
 
+        logger.debug("Acquired lock")
         response = await super().handle_async_request(request, **kwargs)
 
         return response
@@ -75,10 +67,12 @@ class BaseDownloader(IDownloader):
     def __init__(
         self, *, company_name: str, admin_email: str, rate_per_second: int = 5
     ):
-        self._limiter = Limiter(
-            Rate(rate_per_second, Duration.SECOND),
+        # https://github.com/vutran1710/PyrateLimiter/blob/master/examples/httpx_ratelimiter.py
+        self._limiter = limiter_factory.create_inmemory_limiter(
+            rate_per_duration=rate_per_second,
+            duration=Duration.SECOND,
             max_delay=Duration.HOUR,
-            raise_when_fail=True,
+            async_wrapper=True,
         )
         # https://www.sec.gov/about/webmaster-frequently-asked-questions#developers
         self._user_agent = f"{company_name} {admin_email}"
@@ -95,13 +89,12 @@ class BaseDownloader(IDownloader):
                 headers={
                     "User-Agent": self._user_agent,
                     "Accept-Encoding": "gzip, deflate",
-                    # "Host": "www.sec.gov",
                     "If-Modified-Since": last_modified or "",
                 },
             )
 
         status_code = response.status_code
-        _last_modified = response.headers.get("last-modified") or None
+        response_last_modified = response.headers.get("last-modified") or ""
         content_type = response.headers.get("content-type") or None
         content = (
             response.text
@@ -110,9 +103,9 @@ class BaseDownloader(IDownloader):
         )
 
         return {
+            "url": url,
             "status_code": status_code,
             "content": content,
-            "last_modified": _last_modified,
-            "url": url,
             "content_type": content_type,
+            "last_modified": response_last_modified,
         }
