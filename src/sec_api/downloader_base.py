@@ -1,38 +1,14 @@
 import logging
-from abc import ABC, abstractmethod
-from typing import TypedDict, override
-from urllib.parse import urljoin
+from typing import override
 
 import httpx
 from httpx import AsyncHTTPTransport, Headers, Request, Response
 from pyrate_limiter import Duration, Limiter, limiter_factory
 
-STATUS_CODE_NOT_MODIFIED = 304
+from .constants import STATUS_CODE_NOT_MODIFIED
+from .typings import DownloadResponse, IDownloader, ProxyType
 
 logger = logging.getLogger(__name__)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger.setLevel(logging.DEBUG)
-
-
-class DownloadResponse(TypedDict):
-    url: str
-    status_code: int
-    content: str
-    last_modified: str
-    content_type: str | None
-
-
-class IDownloader(ABC):
-    @abstractmethod
-    async def get_url_async(
-        self, *, base_url: str, path: str, last_modified: str | None = None
-    ) -> DownloadResponse:
-        pass
 
 
 class AsyncAsyncLimiterTransport(AsyncHTTPTransport):
@@ -63,26 +39,58 @@ def get_header(headers: Headers, key: str):
 class BaseDownloader(IDownloader):
     _limiter: Limiter
     _user_agent: str
+    _proxy: ProxyType | None
 
     def __init__(
-        self, *, company_name: str, admin_email: str, rate_per_second: int = 5
+        self,
+        *,
+        user_agent: str,
+        rate_per_second: int | None,
+        proxy: ProxyType | None,
     ):
         # https://github.com/vutran1710/PyrateLimiter/blob/master/examples/httpx_ratelimiter.py
         self._limiter = limiter_factory.create_inmemory_limiter(
-            rate_per_duration=rate_per_second,
+            rate_per_duration=rate_per_second or 5,
             duration=Duration.SECOND,
-            max_delay=Duration.HOUR,
+            max_delay=Duration.MINUTE,
             async_wrapper=True,
         )
         # https://www.sec.gov/about/webmaster-frequently-asked-questions#developers
-        self._user_agent = f"{company_name} {admin_email}"
+        self._user_agent = user_agent
+        self._proxy = proxy
 
     @override
-    async def get_url_async(
-        self, *, base_url: str, path: str, last_modified: str | None = None
+    async def get_url_async(self, url: str) -> DownloadResponse:
+        cached = self.read_from_cache(url)
+
+        response = await self._do_get_url_async(
+            url=url,
+            last_modified=None if cached is None else cached["last_modified"],
+        )
+
+        # There will be no content in response in case of STATUS_CODE_NOT_MODIFIED
+        if cached is not None and response["status_code"] == STATUS_CODE_NOT_MODIFIED:
+            return cached
+
+        # Do not cache is server doesn't respond 'Last-Modified'
+        # Otherwise everytime it will ignore cache,which will make cache irrelevant
+        if response["last_modified"] == "":
+            return response
+
+        return self.write_to_cache(url, response)
+
+    def read_from_cache(self, url: str) -> DownloadResponse | None:
+        return None
+
+    def write_to_cache(self, url: str, response: DownloadResponse) -> DownloadResponse:
+        return response
+
+    async def _do_get_url_async(
+        self, *, url: str, last_modified: str | None
     ) -> DownloadResponse:
-        url = urljoin(base_url, path)
-        transport = AsyncAsyncLimiterTransport(limiter=self._limiter, retries=3)
+        transport = AsyncAsyncLimiterTransport(
+            limiter=self._limiter, retries=3, proxy=self._proxy
+        )
         async with httpx.AsyncClient(transport=transport) as client:
             response = await client.get(
                 url,

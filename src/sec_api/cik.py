@@ -2,7 +2,8 @@ from typing import Literal, TypedDict
 
 from pydantic import TypeAdapter
 
-from .downloader.base import IDownloader
+from .constants import COMPANY_TICKERS_EXCHANGE_URL
+from .typings import IDownloader
 
 
 class CompanyTickerExchange(TypedDict):
@@ -74,9 +75,7 @@ class CentralIndexKey:
         return structured_data["list"]
 
     async def _get_structured_data(self) -> _StructuredData | None:
-        response = await self._downloader.get_url_async(
-            base_url="https://www.sec.gov", path="files/company_tickers_exchange.json"
-        )
+        response = await self._downloader.get_url_async(COMPANY_TICKERS_EXCHANGE_URL)
 
         last_modified = response["last_modified"]
 
