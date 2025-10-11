@@ -28,7 +28,7 @@ class LocalCacheDownloader(BaseDownloader):
         self._cache_directory = cache_directory
 
     @override
-    def read_from_cache(self, url: str) -> DownloadResponse | None:
+    async def read_from_cache_async(self, url: str) -> DownloadResponse | None:
         fname = Path(self._cache_directory, urlsplit(url).path.lstrip("/"))
         if fname.exists():
             with open(fname) as file:
@@ -42,9 +42,8 @@ class LocalCacheDownloader(BaseDownloader):
             return None
 
     @override
-    def write_to_cache(self, url: str, response: DownloadResponse) -> DownloadResponse:
+    async def write_to_cache_async(self, url: str, response: DownloadResponse):
         fname = Path(self._cache_directory, urlsplit(url).path.lstrip("/"))
         fname.parent.mkdir(exist_ok=True, parents=True)
         with open(fname, "w") as file:
             _ = file.write(json.dumps(response, indent=2))
-        return response

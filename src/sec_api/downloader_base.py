@@ -61,7 +61,7 @@ class BaseDownloader(IDownloader):
 
     @override
     async def get_url_async(self, url: str) -> DownloadResponse:
-        cached = self.read_from_cache(url)
+        cached = await self.read_from_cache_async(url)
 
         response = await self._do_get_url_async(
             url=url,
@@ -72,18 +72,20 @@ class BaseDownloader(IDownloader):
         if cached is not None and response["status_code"] == STATUS_CODE_NOT_MODIFIED:
             return cached
 
-        # Do not cache is server doesn't respond 'Last-Modified'
-        # Otherwise everytime it will ignore cache,which will make cache irrelevant
+        # Do not cache if server doesn't respond 'Last-Modified'
+        # Otherwise everytime it will ignore cache, which will make cache irrelevant
         if response["last_modified"] == "":
             return response
 
-        return self.write_to_cache(url, response)
+        await self.write_to_cache_async(url, response)
 
-    def read_from_cache(self, url: str) -> DownloadResponse | None:
+        return response
+
+    async def read_from_cache_async(self, url: str) -> DownloadResponse | None:
         return None
 
-    def write_to_cache(self, url: str, response: DownloadResponse) -> DownloadResponse:
-        return response
+    async def write_to_cache_async(self, url: str, response: DownloadResponse):
+        return None
 
     async def _do_get_url_async(
         self, *, url: str, last_modified: str | None
