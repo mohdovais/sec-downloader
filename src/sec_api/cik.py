@@ -6,6 +6,13 @@ from .constants import COMPANY_TICKERS_EXCHANGE_URL
 from .typings import IDownloader
 
 
+class CompanyTickersExchangeJson(TypedDict):
+    fields: tuple[
+        Literal["cik"], Literal["name"], Literal["ticker"], Literal["exchange"]
+    ]
+    data: list[tuple[int, str, str, str | None]]
+
+
 class CompanyTickerExchange(TypedDict):
     cik: int
     name: str
@@ -13,21 +20,18 @@ class CompanyTickerExchange(TypedDict):
     exchange: str | None
 
 
-class _CompanyTickersExchangeJson(TypedDict):
-    fields: tuple[
-        Literal["cik"], Literal["name"], Literal["ticker"], Literal["exchange"]
-    ]
-    data: list[tuple[int, str, str, str | None]]
-
-
-class _StructuredData(TypedDict):
+class StructuredCompanyTickerExchange(TypedDict):
     list: list[CompanyTickerExchange]
     by_cik: dict[int, CompanyTickerExchange]
     by_ticker: dict[str, CompanyTickerExchange]
 
 
-def _structure_data(raw_data: _CompanyTickersExchangeJson):
-    structured_data: _StructuredData = {"list": [], "by_cik": {}, "by_ticker": {}}
+def structure_company_exchange_json(raw_data: CompanyTickersExchangeJson):
+    structured_data: StructuredCompanyTickerExchange = {
+        "list": [],
+        "by_cik": {},
+        "by_ticker": {},
+    }
 
     for row in raw_data["data"]:
         item: CompanyTickerExchange = {
@@ -47,7 +51,7 @@ def _structure_data(raw_data: _CompanyTickersExchangeJson):
 class CentralIndexKey:
     _downloader: IDownloader
     _last_modified: str | None = None
-    _structured_data: _StructuredData | None = None
+    _structured_data: StructuredCompanyTickerExchange | None = None
 
     def __init__(self, downloader: IDownloader):
         self._downloader = downloader
@@ -74,15 +78,17 @@ class CentralIndexKey:
             return None
         return structured_data["list"]
 
-    async def _get_structured_data(self) -> _StructuredData | None:
+    async def _get_structured_data(self) -> StructuredCompanyTickerExchange | None:
         response = await self._downloader.get_url_async(COMPANY_TICKERS_EXCHANGE_URL)
 
         last_modified = response["last_modified"]
 
         if last_modified == "" or last_modified != self._last_modified:
-            adapter = TypeAdapter(_CompanyTickersExchangeJson)
+            adapter = TypeAdapter(CompanyTickersExchangeJson)
             company_tickers_exchange_json = adapter.validate_json(response["content"])
-            self._structured_data = _structure_data(company_tickers_exchange_json)
+            self._structured_data = structure_company_exchange_json(
+                company_tickers_exchange_json
+            )
             self._last_modified = last_modified
 
         return self._structured_data

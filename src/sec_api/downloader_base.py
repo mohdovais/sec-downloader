@@ -14,12 +14,12 @@ logger = logging.getLogger(__name__)
 class AsyncAsyncLimiterTransport(AsyncHTTPTransport):
     limiter: Limiter
 
-    def __init__(self, limiter: Limiter, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, limiter: Limiter, **kwargs):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+        super().__init__(**kwargs)  # pyright: ignore[reportUnknownArgumentType]
         self.limiter = limiter
 
     @override
-    async def handle_async_request(self, request: Request, **kwargs) -> Response:
+    async def handle_async_request(self, request: Request, **kwargs) -> Response:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
         while not await self.limiter.try_acquire_async("httpx_ratelimiter"):
             logger.debug("Lock acquisition timed out, retrying")
 
@@ -81,10 +81,10 @@ class BaseDownloader(IDownloader):
 
         return response
 
-    async def read_from_cache_async(self, url: str) -> DownloadResponse | None:
+    async def read_from_cache_async(self, url: str) -> DownloadResponse | None:  # pyright: ignore[reportUnusedParameter]
         return None
 
-    async def write_to_cache_async(self, url: str, response: DownloadResponse):
+    async def write_to_cache_async(self, url: str, response: DownloadResponse):  # pyright: ignore[reportUnusedParameter]
         return None
 
     async def _do_get_url_async(
